@@ -157,6 +157,7 @@ class TestRunner:
     def _parse_test_output(self, output: str) -> int:
         """
         Парсинг вывода тестов в формате 'Test Suites: X passed, Y total'
+        или в формате '1 passed'
         """
         self.logger.debug("Parsing test output")
         self.logger.debug(f"Raw output: {output}")
@@ -167,6 +168,7 @@ class TestRunner:
             ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
             
             for line in output.split('\n'):
+                # Проверяем формат Test Suites
                 if 'Test Suites:' in line:
                     self.logger.debug(f"Found line with test results: {line}")
                     # Очищаем строку от ANSI escape-последовательностей
@@ -178,6 +180,18 @@ class TestRunner:
                     passed_tests = int(parts.split('passed')[0].strip())
                     self.logger.debug(f"Found {passed_tests} passed test suites")
                     return passed_tests
+                
+                # Проверяем альтернативный формат "X passed"
+                if 'passed' in line:
+                    clean_line = ansi_escape.sub('', line)
+                    self.logger.debug(f"Found alternative passed line: {clean_line}")
+                    # Ищем число перед словом "passed"
+                    match = re.search(r'(\d+)\s+passed', clean_line)
+                    if match:
+                        passed_tests = int(match.group(1))
+                        self.logger.debug(f"Found {passed_tests} passed tests")
+                        return passed_tests
+                    
         except Exception as e:
             self.logger.error(f"Error parsing test output: {str(e)}")
             self.logger.error(f"Exception details:", exc_info=True)
