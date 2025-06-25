@@ -6,13 +6,27 @@ import logging
 from typing import List, Dict
 from datetime import datetime
 import argparse
+import re
+
+# Настройка глобального логгера
+if not os.path.exists('logs'):
+    os.makedirs('logs')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("logs/global.log", mode='a', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("GlobalLogger")
 
 def main():
     parser = argparse.ArgumentParser(description='Test Runner for JavaScript repositories')
     parser.add_argument('repos_file', help='File containing repository URLs')
     parser.add_argument(
         '--log-level',
-        default='INFO',
+        default='DEBUG',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
         help='Set the logging level'
     )
@@ -98,62 +112,6 @@ class TestRunner:
             self.logger.error(f"Error cloning repository {repo_url}: {str(e)}")
             raise
 
-    def run_tests(self, repo_path: str) -> Dict:
-        """
-        Запуск тестов в каждой директории
-        """
-        self.logger.info(f"Running tests in {repo_path}")
-        results = {}
-        
-        dirs = [d for d in os.listdir(repo_path) 
-                if os.path.isdir(os.path.join(repo_path, d)) and d.isdigit()]
-        
-        self.logger.info(f"Found {len(dirs)} test directories")
-        
-        for dir_name in sorted(dirs, key=int):
-            dir_path = os.path.join(repo_path, dir_name)
-            self.logger.info(f"Processing directory {dir_name}")
-            
-            try:
-                self.logger.debug(f"Running npm install in {dir_path}")
-                install_process = subprocess.run(
-                    ['npm', 'install'], 
-                    cwd=dir_path, 
-                    check=True, 
-                    capture_output=True,
-                    text=True
-                )
-                
-                self.logger.debug(f"Running npm test in {dir_path}")
-                test_process = subprocess.run(
-                    ['npm', 'test'], 
-                    cwd=dir_path, 
-                    capture_output=True,
-                    text=True
-                )
-                
-                # Проверяем наличие ошибок
-                if test_process.returncode != 0:
-                    error_msg = f"Test failed: {test_process.stderr}"
-                    self.logger.error(error_msg)
-                    results[dir_name] = 0  # Сохраняем 0 вместо сообщения об ошибке
-                    continue
-                    
-                # Объединяем stdout и stderr для полного вывода
-                full_output = test_process.stdout + test_process.stderr
-                self.logger.debug(f"Test output: {full_output}")
-                
-                passed_tests = self._parse_test_output(full_output)
-                results[dir_name] = passed_tests
-                self.logger.info(f"Directory {dir_name}: {passed_tests} tests passed")
-                
-            except subprocess.CalledProcessError as e:
-                error_msg = f"Error: {str(e)}"
-                self.logger.error(f"Error in directory {dir_name}: {error_msg}")
-                results[dir_name] = 0  # Сохраняем 0 вместо сообщения об ошибке
-                
-        return results
-
     def _parse_test_output(self, output: str) -> int:
         """
         Парсинг вывода тестов в формате 'Test Suites: X passed, Y total'
@@ -163,7 +121,6 @@ class TestRunner:
         self.logger.debug(f"Raw output: {output}")
         
         try:
-            import re
             # Паттерн для удаления ANSI escape-последовательностей
             ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
             
@@ -207,10 +164,21 @@ class TestRunner:
             self.logger.debug(f"Creating temporary directory: {temp_dir}")
             os.makedirs(temp_dir)
 
+        # Проверяем, пуст ли файл repos_file
+        if not self.repos:
+            self.logger.info("No repositories found in repos_file, checking temp_repos directory.")
+            # Получаем список всех репозиториев в temp_repos
+            self.repos = [os.path.join(temp_dir, d) for d in os.listdir(temp_dir) 
+                          if os.path.isdir(os.path.join(temp_dir, d))]
+
         for repo_url in self.repos:
             try:
-                repo_path = self.clone_repo(repo_url, temp_dir)
-                self.results[repo_url] = self.run_tests(repo_path)
+                # Если это путь к локальному репозиторию, просто запускаем тесты
+                if os.path.isdir(repo_url):
+                    self.results[repo_url] = self.run_tests(repo_url)
+                else:
+                    repo_path = self.clone_repo(repo_url, temp_dir)
+                    self.results[repo_url] = self.run_tests(repo_path)
             except Exception as e:
                 error_msg = f"Error: {str(e)}"
                 self.logger.error(f"Failed to process repository {repo_url}: {error_msg}")
@@ -255,5 +223,202 @@ class TestRunner:
             self.logger.error(f"Error saving results: {str(e)}")
             raise
 
+def parse_deadlines(deadlines_file: str) -> dict:
+    """
+    Читает файл дедлайнов и возвращает словарь:
+    { 'solutions02.txt': {'soft': datetime, 'hard': datetime} }
+    """
+    deadlines = {}
+    with open(deadlines_file, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) >= 7:
+                fname = parts[0]
+                soft = ' '.join(parts[1:5])
+                hard = ' '.join(parts[5:9])
+                deadlines[fname] = {
+                    'soft': datetime.strptime(soft, '%B %d, %Y %H:%M'),
+                    'hard': datetime.strptime(hard, '%B %d, %Y %H:%M')
+                }
+    return deadlines
+
+
+def get_last_commit_date(repo_path: str) -> datetime:
+    """
+    Возвращает дату последнего коммита в репозитории
+    """
+    repo = git.Repo(repo_path)
+    commit = next(repo.iter_commits(), None)
+    if commit:
+        return datetime.fromtimestamp(commit.committed_date)
+    return None
+
+
+def check_deadline(commit_date: datetime, soft: datetime, hard: datetime) -> str:
+    if commit_date <= soft:
+        return 'до мягкого'
+    elif commit_date <= hard:
+        return 'до жёсткого'
+    else:
+        return 'дедлайн превышен'
+
+
+def process_assignment(solutions_file: str, deadlines: dict, temp_dir: str = 'temp_repos', results_dir: str = 'results'):
+    """
+    Обрабатывает одно задание: запускает тесты, формирует resultsXX.tsv
+    """
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+    assignment = os.path.basename(solutions_file)
+    match = re.search(r'\d+', assignment)
+    num = match.group().zfill(2) if match else '00'
+    result_file = os.path.join(results_dir, f"results{num}.tsv")
+    deadline = deadlines.get(assignment)
+    if not deadline:
+        logger.warning(f"No deadline for {assignment}")
+        print(f"No deadline for {assignment}")
+        return
+    with open(solutions_file, 'r') as f, open(result_file, 'w') as out:
+        for line in f:
+            if not line.strip():
+                continue
+            name, repo_url = line.strip().split('\t')
+            try:
+                logger.info(f"Processing student: {name}")
+                # Клонируем или обновляем репозиторий
+                parts = repo_url.split('/')
+                user_name = parts[-2]
+                repo_name = parts[-1].replace('.git', '')
+                unique_repo_path = os.path.join(temp_dir, f"{user_name}_{repo_name}")
+                if not os.path.exists(unique_repo_path):
+                    logger.info(f"Cloning repo {repo_url} to {unique_repo_path}")
+                    git.Repo.clone_from(repo_url, unique_repo_path)
+                else:
+                    logger.info(f"Pulling latest changes for {repo_url}")
+                    repo = git.Repo(unique_repo_path)
+                    repo.remotes.origin.pull()
+                # Запуск тестов
+                test_results = run_tests(unique_repo_path)
+                passed = sum(v[0] for v in test_results.values())
+                total = sum(v[1] for v in test_results.values())
+                failed = total - passed
+                # Дата последнего коммита
+                commit_date = get_last_commit_date(unique_repo_path)
+                commit_date_str = commit_date.strftime('%Y-%m-%d %H:%M') if commit_date else '-'
+                # Проверка дедлайна
+                deadline_status = check_deadline(commit_date, deadline['soft'], deadline['hard']) if commit_date else '-'
+                # Запись строки
+                out.write(f"{name}\t{passed}\t{failed}\t{commit_date_str}\t{deadline_status}\n")
+                logger.info(f"Result for {name}: {passed} passed, {failed} failed, commit {commit_date_str}, deadline {deadline_status}")
+            except Exception as e:
+                logger.error(f"Error processing {name}: {str(e)}")
+                out.write(f"{name}\tERROR\tERROR\t-\t-\n")
+
+def parse_test_output(output: str) -> tuple:
+    """
+    Парсит вывод тестов и возвращает (passed, total) по строке 'Test Suites: X passed, Y total'.
+    Если не найдено — возвращает (0, 0).
+    """
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    try:
+        for line in output.split('\n'):
+            if 'Test Suites:' in line:
+                clean_line = ansi_escape.sub('', line)
+                # Пример: 'Test Suites: 7 passed, 7 total'
+                match = re.search(r'Test Suites:\s*(\d+) passed, (\d+) total', clean_line)
+                if match:
+                    passed = int(match.group(1))
+                    total = int(match.group(2))
+                    logger.info(f"Test Suites parsed: {passed} passed, {total} total")
+                    return passed, total
+            if 'passed' in line:
+                clean_line = ansi_escape.sub('', line)
+                match = re.search(r'(\d+)\s+passed', clean_line)
+                if match:
+                    passed = int(match.group(1))
+                    logger.info(f"Alternative passed line parsed: {passed} passed")
+                    return passed, passed
+    except Exception as e:
+        logger.error(f"Error parsing test output: {str(e)}")
+    return 0, 0
+
+def run_tests(repo_path: str) -> dict:
+    """
+    Запуск тестов в каждой директории с поддержкой JS и Python проектов,
+    либо из корня, если нет числовых директорий.
+    """
+    results = {}
+    dirs = [d for d in os.listdir(repo_path)
+            if os.path.isdir(os.path.join(repo_path, d)) and d.isdigit()]
+    if dirs:
+        logger.info(f"Found {len(dirs)} test directories in {repo_path}")
+        for dir_name in sorted(dirs, key=int):
+            dir_path = os.path.join(repo_path, dir_name)
+            logger.info(f"Processing directory {dir_name}")
+            try:
+                is_js_project = os.path.exists(os.path.join(dir_path, 'package.json'))
+                is_python_project = os.path.exists(os.path.join(dir_path, 'pyproject.toml'))
+                if is_js_project:
+                    install_cmd = ['npm', 'install']
+                    test_cmd = ['npm', 'test']
+                elif is_python_project:
+                    install_cmd = ['poetry', 'install']
+                    test_cmd = ['poetry', 'run', 'pytest']
+                else:
+                    logger.warning(f"Unknown project type in {dir_path}")
+                    results[dir_name] = (0, 0)
+                    continue
+                logger.info(f"Running install command: {' '.join(install_cmd)}")
+                subprocess.run(install_cmd, cwd=dir_path, check=True, capture_output=True, text=True)
+                logger.info(f"Running test command: {' '.join(test_cmd)}")
+                test_process = subprocess.run(test_cmd, cwd=dir_path, capture_output=True, text=True)
+                if test_process.returncode != 0:
+                    logger.error(f"Test failed in {dir_path}: {test_process.stderr}")
+                    results[dir_name] = (0, 0)
+                    continue
+                full_output = test_process.stdout + test_process.stderr
+                passed, total = parse_test_output(full_output)
+                results[dir_name] = (passed, total)
+                logger.info(f"Directory {dir_name}: {passed} passed, {total} total")
+            except Exception as e:
+                logger.error(f"Error in directory {dir_name}: {str(e)}")
+                results[dir_name] = (0, 0)
+    else:
+        logger.info(f"No digit-named directories in {repo_path}, running tests from root.")
+        try:
+            is_js_project = os.path.exists(os.path.join(repo_path, 'package.json'))
+            is_python_project = os.path.exists(os.path.join(repo_path, 'pyproject.toml'))
+            if is_js_project:
+                install_cmd = ['npm', 'install']
+                test_cmd = ['npm', 'test']
+            elif is_python_project:
+                install_cmd = ['poetry', 'install']
+                test_cmd = ['poetry', 'run', 'pytest']
+            else:
+                logger.warning(f"Unknown project type in {repo_path}")
+                results['root'] = (0, 0)
+                return results
+            logger.info(f"Running install command: {' '.join(install_cmd)}")
+            subprocess.run(install_cmd, cwd=repo_path, check=True, capture_output=True, text=True)
+            logger.info(f"Running test command: {' '.join(test_cmd)}")
+            test_process = subprocess.run(test_cmd, cwd=repo_path, capture_output=True, text=True)
+            if test_process.returncode != 0:
+                logger.error(f"Test failed in {repo_path}: {test_process.stderr}")
+                results['root'] = (0, 0)
+            else:
+                full_output = test_process.stdout + test_process.stderr
+                passed, total = parse_test_output(full_output)
+                results['root'] = (passed, total)
+                logger.info(f"Repo {repo_path}: {passed} passed, {total} total")
+        except Exception as e:
+            logger.error(f"Error in repo {repo_path}: {str(e)}")
+            results['root'] = (0, 0)
+    return results
+
 if __name__ == '__main__':
-    main()
+    # Автоматически обработать все solutionsXX.txt
+    deadlines = parse_deadlines('deadlines.txt')
+    solutions_dir = 'solutions'
+    for fname in os.listdir(solutions_dir):
+        if fname.startswith('solutions') and fname.endswith('.txt'):
+            process_assignment(os.path.join(solutions_dir, fname), deadlines)
