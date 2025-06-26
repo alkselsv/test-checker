@@ -7,6 +7,7 @@ from typing import List, Dict
 from datetime import datetime
 import argparse
 import re
+import shutil
 
 # Настройка глобального логгера
 if not os.path.exists('logs'):
@@ -267,6 +268,10 @@ def process_assignment(solutions_file: str, deadlines: dict, temp_dir: str = 'te
     """
     Обрабатывает одно задание: запускает тесты, формирует resultsXX.tsv
     """
+    # Очищаем временную директорию перед проверкой задания
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+    os.makedirs(temp_dir)
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
     assignment = os.path.basename(solutions_file)
@@ -278,7 +283,8 @@ def process_assignment(solutions_file: str, deadlines: dict, temp_dir: str = 'te
         logger.warning(f"No deadline for {assignment}")
         print(f"No deadline for {assignment}")
         return
-    with open(solutions_file, 'r') as f, open(result_file, 'w') as out:
+    results_lines = []
+    with open(solutions_file, 'r') as f:
         for line in f:
             if not line.strip():
                 continue
@@ -307,12 +313,18 @@ def process_assignment(solutions_file: str, deadlines: dict, temp_dir: str = 'te
                 commit_date_str = commit_date.strftime('%Y-%m-%d %H:%M') if commit_date else '-'
                 # Проверка дедлайна
                 deadline_status = check_deadline(commit_date, deadline['soft'], deadline['hard']) if commit_date else '-'
-                # Запись строки
-                out.write(f"{name}\t{passed}\t{failed}\t{commit_date_str}\t{deadline_status}\n")
+                # Сохраняем строку в список
+                results_lines.append((name, f"{name}\t{passed}\t{failed}\t{commit_date_str}\t{deadline_status}\n"))
                 logger.info(f"Result for {name}: {passed} passed, {failed} failed, commit {commit_date_str}, deadline {deadline_status}")
             except Exception as e:
                 logger.error(f"Error processing {name}: {str(e)}")
-                out.write(f"{name}\tERROR\tERROR\t-\t-\n")
+                results_lines.append((name, f"{name}\tERROR\tERROR\t-\t-\n"))
+    # Сортируем по ФИО
+    results_lines.sort(key=lambda x: x[0])
+    # Записываем в файл
+    with open(result_file, 'w') as out:
+        for _, line in results_lines:
+            out.write(line)
 
 def parse_test_output(output: str) -> tuple:
     """
@@ -416,9 +428,17 @@ def run_tests(repo_path: str) -> dict:
     return results
 
 if __name__ == '__main__':
-    # Автоматически обработать все solutionsXX.txt
+    # Автоматически обработать все solutionsXX.txt строго в порядке из deadlines.txt
     deadlines = parse_deadlines('deadlines.txt')
     solutions_dir = 'solutions'
-    for fname in os.listdir(solutions_dir):
-        if fname.startswith('solutions') and fname.endswith('.txt'):
-            process_assignment(os.path.join(solutions_dir, fname), deadlines)
+    results_dir = 'results'
+    for fname in deadlines.keys():
+        solutions_path = os.path.join(solutions_dir, fname)
+        match = re.search(r'\d+', fname)
+        num = match.group().zfill(2) if match else '00'
+        result_file = os.path.join(results_dir, f"results{num}.tsv")
+        if os.path.exists(result_file):
+            logger.info(f"Results already exist for {fname}, skipping.")
+            continue
+        if os.path.exists(solutions_path):
+            process_assignment(solutions_path, deadlines)

@@ -1,0 +1,16 @@
+Князев Александр	https://github.com/Neverfrng/js-introduction-to-oop-tasks.git
+Холодилин Иван	https://github.com/Iwankholodilin/js-introduction-to-oop-tasks
+Романенко Анастасия	https://github.com/ssteysii/DZ-4.git
+Поминова Анастасия	https://github.com/nastasia-pn/js-introduction-to-oop-tasks.git
+Абдулин Данил	https://github.com/daniel-kors/js-introduction-to-oop-tasks.git
+Булгаков Андрей	https://github.com/AndreyBulgakov228/js-introduction-to-oop-tasks.git
+Антипов Максим	https://github.com/Baragozinho/js-introduction-to-oop-tasks.git
+Семыкина Анастасия	https://github.com/AnastasiaASem/Web_homework5.git
+Долженкова Анна	https://github.com/anuyaad/js-oop.git
+Дарья Устинова	https://github.com/Udashkins/js-introduction-to-oop-tasks.git
+Карякин Артем	https://github.com/temsas/js-introduction-to-oop-tasks
+Бренев Тимофей	https://github.com/Kraken-777-bit/js-introduction-to-oop-tasks.git
+Устинов Илья	https://github.com/Ustinov-Ilya/lab-5.git
+Ванин Владислав	https://github.com/Ocskylla/lr_5_web.git
+Белоусова Екатерина	https://github.com/belkatya/js-introduction-to-oop-tasks/tree/main
+Куракин Дмитрий	https://github.com/dima55279/js-introduction-to-oop-tasks.git

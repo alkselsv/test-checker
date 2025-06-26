@@ -1,1 +1,8 @@
 solutions02.txt March 20, 2025 23:59 March 27, 2025 23:59
+solutions03.txt April 1, 2025 23:59 April 8, 2025 23:59
+solutions04.txt April 10, 2025 23:59 April 17, 2025 23:59
+solutions05.txt April 22, 2025 23:59 April 29, 2025 23:59
+solutions06.txt May 6, 2025 23:59 May 13, 2025 23:59
+solutions07.txt May 13, 2025 23:59 May 20, 2025 23:59
+solutions08.txt May 27, 2025 23:59 June 3, 2025 23:59
+solutions09.txt June 3, 2025 23:59 June 25, 2025 23:59
